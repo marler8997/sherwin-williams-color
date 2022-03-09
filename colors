@@ -1,0 +1,247 @@
+#!/usr/bin/env python3
+import csv
+
+class Rgb:
+    def __init__(self, r, g, b):
+        self.r = r
+        self.g = g
+        self.b = b
+    def __hash__(self):
+        return (self.r << 16) | (self.g << 8) | self.b
+    def __eq__(self, other):
+        return self.r == other.r and self.g == other.g and self.b == other.b
+    def __str__(self):
+        return "rgb({},{},{})".format(self.r, self.g, self.b)
+    def hexStr(self):
+        return "{:02X}{:02X}{:02X}".format(self.r, self.g, self.b)
+
+class Color:
+    def __init__(self, name, num, rgb):
+        self.name = name
+        self.num = num
+        self.rgb = rgb
+    def __hash__(self):
+        return self.rgb.__hash__()
+    def __eq__(self, other):
+        return self.rgb.__eq__(other.rgb)
+    def divAttrs(self):
+        return 'class="ColorDiv" id="color{}" title="{}: {} {}"'.format(
+            self.num, self.num, self.name, self.rgb.hexStr())
+
+def readColors():
+    colors = []
+    with open('sherwinwilliams.csv') as csvfile:
+        reader = csv.reader(csvfile, delimiter=',', quotechar='"')
+        line = 1
+        for row in reader:
+            #print("{}: ".format(line) + str(row))
+            name = row[0]
+            num = int(row[1])
+            color_hex_string = row[2][1:]
+            color = int(color_hex_string, 16)
+            red = (color >> 16) & 0xff
+            green = (color >> 8) & 0xff
+            blue = color & 0xff
+            rgb_string = "rgb({}, {}, {})".format(red, green, blue)
+            assert(rgb_string == row[3])
+            colors.append(Color(name, num, Rgb(red, green, blue)))
+
+            line += 1
+    return colors
+        
+def main():
+    colors = readColors()
+    #for color in colors:
+    #    print("{}: '{}' {}".format(color.num, color.name, color.rgb))
+
+    rgb_color_map = {}
+    for color in colors:
+        rgb_color_map[color.rgb] = color
+
+    red_table = []
+    green_table = []
+    blue_table = []
+    for i in range(0, 256):
+        red_table.append([])
+        green_table.append([])
+        blue_table.append([])
+    for color in colors:
+        red_table[color.rgb.r].append(color)
+        green_table[color.rgb.g].append(color)
+        blue_table[color.rgb.b].append(color)
+    counts = [0, 0, 0]
+    for i in range(0, 256):
+        if len(red_table[i]) > 0:
+            counts[0] += 1
+
+    # cleanup
+    sorted_reds = []
+    sorted_greens = []
+    sorted_blues = []
+    for i in range(0, 256):
+        if len(red_table[i]) > 0:
+            sorted_reds.append(red_table[i])
+        if len(green_table[i]) > 0:
+            sorted_greens.append(green_table[i])
+        if len(blue_table[i]) > 0:
+            sorted_blues.append(blue_table[i])
+            
+    
+    #print("red table={} green_table={} blue_table=[}".format(len(red_table), len(
+    #for i in range(0, 256):
+
+
+    def getRed(color):
+        return color.rgb.r
+    def getGreen(color):
+        return color.rgb.g
+    def getBlue(color):
+        return color.rgb.b
+
+    def renderBlank(f):
+        f.write('<div class="ColorDiv"></div>')
+    def renderColor(f, color):
+        #f.write('<div class="ColorDiv" style="background-color: #{}">{}</div>'.format(color.rgb.hexStr(), color.num))
+        f.write('<div class="ColorDiv" style="background-color: #{}" title="{}: {}"></div>'.format(color.rgb.hexStr(), color.num, color.name))
+
+        
+    def renderColors(f, scale, tilt, getColorX, getColorY, getColorZ):
+        for color in colors:
+            offset = (getColorZ(color) / 256) * tilt
+            f.write('<div {} style="position:absolute;left:{}px;top:{}px"></div>'.format(
+                color.divAttrs(), getColorX(color) * scale + offset, getColorY(color) * scale + offset))
+
+
+    def render2d(f, sorted_colors, get_second_color, get_third_color):
+        for color_list in sorted_colors:
+            f.write('<div style="white-space: nowrap">\n')
+            second_color_map = {}
+            for c in color_list:
+                if get_second_color(c) in second_color_map:
+                    second_color_map[get_second_color(c)].append(c)
+                else:
+                    second_color_map[get_second_color(c)] = [c]
+            for intensity in range(0, 256):
+                if intensity in second_color_map:
+                    colors = second_color_map[intensity]
+                    colors.sort(key=get_third_color)
+                    for c in colors:
+                        renderColor(f, c)
+                else:
+                    pass
+                    renderBlank(f)
+                
+            #for color in red_table[i]:
+            #    renderColor(f, color)
+            f.write('</div>')
+        
+        
+    with open("page.html", "w") as f:
+        f.write('<html><head>\n')
+        f.write('<title>colors</title>\n')
+        f.write('<script>')
+        f.write('var colors = [')
+        prefix = ""
+        for color in colors:
+            f.write('{}{{"num":{},"name":"{}","r":{},"g":{},"b":{}}}'.format(
+                prefix, color.num, color.name, color.rgb.r, color.rgb.g, color.rgb.b))
+            prefix = ","
+        f.write("];\n")
+        f.write("""
+var global_scale = 5;
+var global_tilt = 10;
+
+function getRed(c) { return c.r; }
+function getGreen(c) { return c.g; }
+function getBlue(c) { return c.b; }
+function getColorAttrs(color) {
+  return 'class="ColorDiv" id="color' + color.num + '" title="' + color.num + ': ' +
+      color.name + ' r=' + color.r + ',g=' + color.g + ',b=' + color.b + '"'
+}
+function get(i) { return document.getElementById(i); }
+function updateVisualWith(scale, tilt, getX, getY, getZ) {
+  var colorsDom = get("ColorVisualDiv");
+  for (var i = 0; i < colorsDom.childNodes.length; i++) {
+    var colorDom = colorsDom.childNodes[i];
+    var color = colors[i]
+    var offset = (getZ(color) / 256) * tilt;
+    colorDom.style.zIndex = -getZ(color);
+    colorDom.style.width = (scale*4) + 'px';
+    colorDom.style.height = (scale*4) + 'px';
+    colorDom.style.left = ((getX(color) + offset) * scale) + 'px';
+    colorDom.style.top = (((256-getY(color)) + (2*offset)) * scale) + 'px';
+  }
+}
+function updateVisual() {
+  updateVisualWith(global_scale, global_tilt, getRed, getGreen, getBlue);
+}
+
+function onScaleSliderUpdate(slider) {
+  global_scale = slider.value;
+  console.log("Scale=" + global_scale)
+  updateVisual()
+}
+function onTiltSliderUpdate(slider) {
+  global_tilt = slider.value;
+  updateVisual()
+}
+function onBodyLoad() {
+  var colors_html = '';
+  for (var i = 0; i < colors.length; i++) {
+    var color = colors[i]
+    colors_html += '<div ' + getColorAttrs(color) + ' style="position:absolute;left:0px;top:0px"></div>';
+  }
+  get("ColorVisualDiv").innerHTML = colors_html;
+  updateVisual();
+}
+</script>
+<style>
+* { margin: 0; padding: 0 }
+body { background-color: black;color:white }
+.ColorDiv {
+    display: inline-block;
+    /*
+    margin: 2px;
+    border: 1px solid #000;
+    width: 40px;
+    height: 40px;
+    */
+    text-align: center;
+}
+""")
+        for color in colors:
+            f.write('#color{}{{background-color:#{}}}'.format(color.num, color.rgb.hexStr()))
+        f.write('</style>')
+        f.write('</head><body onload="onBodyLoad()">')
+        f.write('<div id="ColorVisualDiv"></div>')
+        f.write('<div style="position:fixed;top:0;left:0">')
+        f.write('  Scale: <input type="range" min="0" max="30" value="5" class="slider" id="ScaleSlider" oninput="onScaleSliderUpdate(this)"/>')
+        f.write('  Tilt: <input type="range" min="0" max="400" value="10" class="slider" id="TiltSlider" oninput="onTiltSliderUpdate(this)"/>')
+        f.write('</div>')
+
+#        for color in colors:
+#            f.write('<div id="color{}" class="ColorDiv" style="background-color: #{}" title="{}: {}"></div>'.format(color.num, color.rgb.hexStr(), color.num, color.name))
+
+            
+        #renderColors(f, 10, 10, getRed, getGreen, getBlue)
+        #for color in colors:
+        #    f.write('<div><div style="background-color: #{};display:inline-block;width:200px;height:40px">{}</div></div>\n'.format(color.rgb.hexStr(), color.name))
+#        f.write('<h1>Red > Green (blue)</h1>')
+#        render2d(f, sorted_reds, getGreen, getBlue)
+#        f.write('<h1>Red > Blue (green)</h1>')
+#        render2d(f, sorted_reds, getBlue, getGreen)
+#
+#        f.write('<h1>Green > Blue (red)</h1>')
+#        render2d(f, sorted_greens, getBlue, getRed)
+#        f.write('<h1>Green > Red (blue)</h1>')
+#        render2d(f, sorted_greens, getRed, getBlue)
+#
+#        f.write('<h1>Blue > Red (green)</h1>')
+#        render2d(f, sorted_blues, getRed, getGreen)
+#        f.write('<h1>Blue > Green (red)</h1>')
+#        render2d(f, sorted_blues, getGreen, getRed)
+#
+        f.write('</body></html>')
+
+        
+main()
